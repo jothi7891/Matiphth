@@ -1,9 +1,7 @@
 ﻿using System;  
 using System.Net;  
 using System.Net.Sockets;  
-using System.Threading;  
 using System.Text;
-using System.IO;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Linq;
@@ -15,8 +13,10 @@ namespace MatipHth
     public class MatipHthWrapper
     {
         // The port number for the remote device.  
-        private static Socket Client; 
-        private static bool Error = false;
+        private static Socket Client;
+        public bool MatipError { get; set; }
+        public bool HthError { get; set; }
+        public bool Timeout { get; set; }
 
 
         //Receive Buffers
@@ -36,7 +36,7 @@ namespace MatipHth
         private static string Layer6 = "VGZ";
         private static string FlynasAirlineCode = "XY";
         private static int TPR;
-        
+        private static string Error = "ERROR";
         
         public MatipHthWrapper()
         {
@@ -63,6 +63,11 @@ namespace MatipHth
                 Client = new Socket(ipAddress.AddressFamily,
                                 SocketType.Stream, ProtocolType.Tcp);
 
+                // set the receive timeout on the socket
+
+                Client.ReceiveTimeout = 60000;            
+                
+
                 // Connect to the remote endpoint.  
                 Client.Connect(remoteEP);  
   
@@ -70,20 +75,25 @@ namespace MatipHth
                     Client.RemoteEndPoint.ToString());  
                 
               } catch (Exception e) {
-                Error = true;  // Set up the error flag
+                MatipError = true;  // Set up the error flag
                 Console.WriteLine(e.ToString());  
             } 
 
          }
          
     
-        private static void Receive() {  
+        private void Receive() {  
             try {
                 // Create the state object.  
                 Client.Receive(ReceiveBuffer);
-            } catch (Exception e) {  
-                Error = true;  // Set up the error flag
-                Console.WriteLine(e.ToString());  
+            } catch (SocketException e){
+                if (e.SocketErrorCode == SocketError.TimedOut){
+                    Console.WriteLine("SocketExecption => Timeout");
+                    Timeout = true;
+                }else{
+                    MatipError = true;  // Set up the error flag
+                    Console.WriteLine("SocketExecption => " + e.ToString());
+                }
             }  
         }  
      
@@ -91,13 +101,8 @@ namespace MatipHth
         private static void Send(byte[] bytes) {
     // Convert the string data to byte data using ASCII encoding.  
     //byte[] byteData = Encoding.ASCII.GetBytes(data); 
-                try {
                 // Create the state object.  
                 Client.Send(bytes);
-            } catch (Exception e) {
-                Error = true;  // Set up the error flag  
-                Console.WriteLine(e.ToString());  
-            }  
         }   
         
         public bool MatipOpen(){
@@ -107,33 +112,34 @@ namespace MatipHth
                 //Establish a MATIP - Send Matip Open
                 var section = ConfigurationManager.GetSection("MatipSettings") as NameValueCollection;
                 var H1H2 = section["MatipH1H2"];
-                var H1H2Byte = BitConverter.GetBytes(Convert.ToInt16(H1H2));
+                
 
-                MatipOpenByte[8] = H1H2Byte[0];
-                MatipOpenByte[9] = H1H2Byte[1];
+                MatipOpenByte[8] = Convert.ToByte(H1H2.Substring(0,2),16);
+                MatipOpenByte[9] = Convert.ToByte(H1H2.Substring(2,2),16);
                 Send(MatipOpenByte);
                 
                 // Receive the Matip Open Response
                 Receive();    
-                
+
+
                 //Check for Matip Open Confirmation
                 byte[] ReceivedData = ReceiveBuffer.Skip(0).Take(5).ToArray();
+                // Write the response to the console.  
+                Console.WriteLine("Response received : {0}", BitConverter.ToString(ReceivedData));
                 if(ReceivedData.SequenceEqual(MatipOpenConfirmByte))
                 {
                     OpenConfirm = true;
-                    Console.WriteLine("Open confirmed received : {0}", ReceiveBuffer);
                  }
                 else
                 {
-                    Error = true;  // Set up the error flag
+                    MatipError = true;  // Set up the error flag
                     
                 }
                 
-                // Write the response to the console.  
-                Console.WriteLine("Response received : {0}", ReceiveBuffer);
+
 
             } catch (Exception e) {  
-                Error = true;  // Set up the error flag
+                MatipError = true;  // Set up the error flag
                 Console.WriteLine("Exception during Matip Open" + e.ToString());  
             }
             return OpenConfirm;
@@ -142,6 +148,8 @@ namespace MatipHth
         public void MatipClose(){
             try{
                 //Establish a MATIP - Send Matip Close
+                // Write the response to the console.  
+                Console.WriteLine("Response received : {0}", BitConverter.ToString(MatipCloseByte));
                 Send(MatipCloseByte);
               
                 // Release the socket.  
@@ -149,39 +157,50 @@ namespace MatipHth
                 Client.Close(); 
                  
             } catch (Exception e) {  
-                Error = true;  // Set up the error flag
+                MatipError = true;  // Set up the error flag
                 Console.WriteLine("Exception during Matip Close" + e.ToString());  
             } 
         }
         
-        public void MatipDataSend(String Data){
+        public byte[] MatipDataSend(String Data){
+            byte[] response = new byte[8192];
             try{
-
+                ResetErrors();
+                MatipOpen();
                 // Prepend Hth Header
+               if(MatipError)
+                {
+                    MatipClose();
+                    return response;
+                }
                byte[] HthRequest = PrependHthRequest(Data);
 
-                
+                Console.WriteLine("Request sent is : {0}", BitConverter.ToString(HthRequest));
+                Console.WriteLine("ASCII Request sent is :{0}", Encoding.UTF8.GetString(HthRequest));
                 //Establish a data request
                 Send(HthRequest);
                 
                 // Receive the data response
                 Receive();
-
-
+                
+                // Write the response to the console.  
+                Console.WriteLine("Response received : {0}", BitConverter.ToString(ReceiveBuffer));
+                Console.WriteLine("ASCII Request sent is :{0}", Encoding.UTF8.GetString(ReceiveBuffer));
                 // Extract the Response data and check if the hth headers have been received in tact
 
-                byte[] response = ExtractResponse();
+                response = ExtractResponse();
+                
+
                 
                 // Write the response to the console.  
-                Console.WriteLine("Response received : {0}", ReceiveBuffer);
-                
-                // Write the response to the console.  
-                Console.WriteLine("Extracted response is " +  response.ToString());
+                Console.WriteLine("Extracted response is " +  BitConverter.ToString(response));
                  
             } catch (Exception e) {  
-                Error = true;  // Set up the error flag
+                MatipError = true;  // Set up the error flag
                 Console.WriteLine("Exception during Matip data Send" + e.ToString());  
-            } 
+            }
+            MatipClose();
+            return response;
         }
         
         private byte[] PrependHthRequest(String Data){
@@ -226,13 +245,19 @@ namespace MatipHth
             DataRequest.InsertRange(1, length);
             return DataRequest.ToArray();
         }
-        
+
+private void ResetErrors()
+    {
+            MatipError = false;
+            HthError = false;
+            Timeout = false;
+    }
 
 private byte[] ExtractResponse()
     {
             List<byte> response = new List<byte>();
             
-        if (ReceiveBuffer[7] == 'H')   // check if host to host error occured
+        if (ReceiveBuffer[7] == 'D')   // check if host to host error occured
         {
                 var Start = Array.LastIndexOf(ReceiveBuffer, (byte)0x0D) + 1;
                 var Length = Array.LastIndexOf(ReceiveBuffer, (byte)0X03) - Array.LastIndexOf(ReceiveBuffer, (byte)0x0D);
@@ -240,7 +265,7 @@ private byte[] ExtractResponse()
                 response.AddRange(ReceiveBuffer.Skip(Start).Take(Length).ToArray());      
         }
         else{
-                Error = true;
+                HthError = true;
                 response.AddRange(Encoding.ASCII.GetBytes("Error Extracing Hth Headers"));
             }
             return response.ToArray();
