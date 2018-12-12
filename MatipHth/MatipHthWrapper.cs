@@ -170,6 +170,7 @@ namespace MatipHth
                 // Prepend Hth Header
                if(MatipError)
                 {
+                    Console.WriteLine("Matip error in receiving matip open response\n");
                     MatipClose();
                     return response;
                 }
@@ -183,9 +184,16 @@ namespace MatipHth
                 // Receive the data response
                 Receive();
                 
+                if(MatipError)
+                {
+                    Console.WriteLine("Matip error in receiving matip open response\n");
+                    MatipClose();
+                    return response;
+                }
+                
                 // Write the response to the console.  
                 Console.WriteLine("Response received : {0}", BitConverter.ToString(ReceiveBuffer));
-                Console.WriteLine("ASCII Request sent is :{0}", Encoding.UTF8.GetString(ReceiveBuffer));
+                Console.WriteLine("ASCII Response received is :{0}", Encoding.UTF8.GetString(ReceiveBuffer));
                 // Extract the Response data and check if the hth headers have been received in tact
 
                 response = ExtractResponse();
