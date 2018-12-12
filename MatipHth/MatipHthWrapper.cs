@@ -217,6 +217,7 @@ namespace MatipHth
             var Flynaslayer5 = section["SourceLayer5"];
             List<byte> DataRequest = new List<byte>();
             DataRequest.Add(0x01);
+            DataRequest.Add(0x00);
             DataRequest.AddRange(Encoding.ASCII.GetBytes(LayerStart));
             DataRequest.Add(ACC);
             DataRequest.Add(EOD);
@@ -250,7 +251,7 @@ namespace MatipHth
                 Array.Reverse(length);
             }
             
-            DataRequest.InsertRange(1, length);
+            DataRequest.InsertRange(2, length);
             return DataRequest.ToArray();
         }
 
