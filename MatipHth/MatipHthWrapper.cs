@@ -266,7 +266,7 @@ private byte[] ExtractResponse()
     {
             List<byte> response = new List<byte>();
             
-        if (ReceiveBuffer[7] == 'D')   // check if host to host error occured
+        if (ReceiveBuffer[8] == 'D')   // check if host to host error occured
         {
                 var Start = Array.LastIndexOf(ReceiveBuffer, (byte)0x0D) + 1;
                 var Length = Array.LastIndexOf(ReceiveBuffer, (byte)0X03) - Array.LastIndexOf(ReceiveBuffer, (byte)0x0D);
